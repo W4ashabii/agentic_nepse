@@ -199,22 +199,36 @@ class DataLayer:
                           row.get('traded_quantity') or row.get('Volume') or
                           row.get('volume') or 0)
                 file_path = os.path.join(DATA_DIR, f"{sym}.csv")
-                new_row = {
-                    'Date': today_date,
-                    'Open': open_price,
-                    'High': high_price,
-                    'Low': low_price,
-                    'Close': close_price,
-                    'Volume': volume
-                }
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
-                    # Normalize date column for comparison
-                    date_col = next((c for c in df.columns if c.lower().replace('_','') in ('date','publisheddate')), None)
-                    if date_col and today_date not in df[date_col].astype(str).values:
+                    d_col = next((c for c in df.columns if c.lower().replace('_','') in ('date','publisheddate')), 'Date')
+                    o_col = next((c for c in df.columns if c.lower() == 'open'), 'Open')
+                    h_col = next((c for c in df.columns if c.lower() == 'high'), 'High')
+                    l_col = next((c for c in df.columns if c.lower() == 'low'), 'Low')
+                    c_col = next((c for c in df.columns if c.lower() == 'close'), 'Close')
+                    v_col = next((c for c in df.columns if c.lower() in ('volume', 'traded_quantity')), 'Volume')
+                    
+                    new_row = {
+                        d_col: today_date,
+                        o_col: open_price,
+                        h_col: high_price,
+                        l_col: low_price,
+                        c_col: close_price,
+                        v_col: volume
+                    }
+                    
+                    if today_date not in df[d_col].astype(str).values:
                         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                         df.to_csv(file_path, index=False)
                 else:
+                    new_row = {
+                        'Date': today_date,
+                        'Open': open_price,
+                        'High': high_price,
+                        'Low': low_price,
+                        'Close': close_price,
+                        'Volume': volume
+                    }
                     pd.DataFrame([new_row]).to_csv(file_path, index=False)
                     logging.info(f"Created new data file for {sym}")
         except Exception as e:
