@@ -345,12 +345,17 @@ class FeatureEngineer:
     @staticmethod
     def apply_sandboxed_features(df: pd.DataFrame, features_dict: Dict[str, str]) -> pd.DataFrame:
         """Evaluate LLM‑generated feature formulas safely.
-        Allowed ops: + - * / np.log np.sqrt np.abs np.exp **2 **0.5
+        Allowed ops: + - * / np.log np.sqrt np.abs np.exp
         Max total generated features = 200.
         """
         if not ne:
             raise RuntimeError("numexpr is required for sandboxed feature evaluation")
-        allowed_names = {"df": df, "np": np, "pd": pd}
+        # Build local_dict with each DataFrame column as a numpy array variable
+        allowed_names = {"np": np, "pd": pd}
+        for col in df.columns:
+            # Only expose columns with valid Python identifier names
+            if isinstance(col, str) and col.isidentifier():
+                allowed_names[col] = df[col].values
         allowed_functions = {
             "log": "np.log",
             "sqrt": "np.sqrt",
@@ -359,7 +364,6 @@ class FeatureEngineer:
         }
         if len(features_dict) + len(df.columns) > 200:
             logging.warning("Feature generation limit exceeded; truncating extra features")
-            # Keep only first (200 - existing) features
             allowed_items = list(features_dict.items())[:200 - len(df.columns)]
         else:
             allowed_items = features_dict.items()
@@ -547,7 +551,7 @@ class ModelTrainer:
         VALID_XGB_OBJECTIVES = {
             'reg:squarederror', 'reg:squaredlogerror', 'reg:logistic',
             'reg:pseudohubererror', 'reg:absoluteerror', 'reg:quantileerror',
-            'reg:gamma', 'reg:tweedie', 'reg:linear',
+            'reg:gamma', 'reg:tweedie',
         }
         safe = {k: v for k, v in params.items() if k in {
             'n_estimators', 'learning_rate', 'max_depth', 'min_child_weight',
@@ -555,7 +559,10 @@ class ModelTrainer:
             'objective', 'eval_metric', 'random_state', 'eta', 'n_jobs',
         }}
         obj = safe.get('objective', 'reg:squarederror')
-        if obj not in VALID_XGB_OBJECTIVES:
+        # Auto-replace deprecated reg:linear
+        if obj == 'reg:linear':
+            safe['objective'] = 'reg:squarederror'
+        elif obj not in VALID_XGB_OBJECTIVES:
             logging.warning(f"Invalid XGBoost objective '{obj}', falling back to 'reg:squarederror'")
             safe['objective'] = 'reg:squarederror'
         # 'eta' is the internal name for learning_rate; avoid passing both
@@ -573,7 +580,7 @@ class ModelTrainer:
             'verbose',
         }}
         safe.setdefault('objective', 'regression')
-        safe.setdefault('verbose', -1)
+        safe['verbose'] = -1
         return safe
 
     @staticmethod
