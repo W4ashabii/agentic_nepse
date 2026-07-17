@@ -47,32 +47,7 @@ except ImportError:
         def find_all(self, *args, **kwargs):
             return []
 
-try:
-    import streamlit as st
-except ImportError:
-    class _StreamlitStub:
-        @staticmethod
-        def write(*args, **kwargs):
-            pass
-        @staticmethod
-        def dataframe(*args, **kwargs):
-            pass
-        @staticmethod
-        def columns(*args, **kwargs):
-            return [_StreamlitStub(), _StreamlitStub(), _StreamlitStub()]
-        @staticmethod
-        def metric(*args, **kwargs):
-            pass
-        @staticmethod
-        def title(*args, **kwargs):
-            pass
-        @staticmethod
-        def header(*args, **kwargs):
-            pass
-        @staticmethod
-        def sidebar(*args, **kwargs):
-            return _StreamlitStub()
-    st = _StreamlitStub()
+import streamlit as st
 
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import TimeSeriesSplit
