@@ -253,6 +253,25 @@ class DataLayer:
                 df = pd.read_csv(f)
                 if len(df) < 30:
                     continue
+                
+                # Normalize column names to gracefully handle different CSV formats
+                col_map = {
+                    'published_date': 'Date',
+                    'date': 'Date',
+                    'open': 'Open',
+                    'high': 'High',
+                    'low': 'Low',
+                    'close': 'Close',
+                    'traded_quantity': 'Volume',
+                    'volume': 'Volume'
+                }
+                df.columns = [str(c).lower().strip() for c in df.columns]
+                df.rename(columns=col_map, inplace=True)
+                
+                if 'Date' not in df.columns or 'Close' not in df.columns:
+                    logging.warning(f"Skipping {f} due to missing Date or Close columns.")
+                    continue
+                    
                 df['Symbol'] = sym
                 for k, v in macro.items():
                     df[k] = v
