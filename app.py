@@ -609,6 +609,9 @@ class AgentLoop:
 
     @staticmethod
     def run_iteration(combined_df: pd.DataFrame):
+        if combined_df.empty:
+            logging.error("No market data available to run iteration. Please ensure 'data/' folder is populated.")
+            return
         mem = AgentLoop.load_memory()
         recent = mem[-5:] if mem else []
         # Build prompt – include new feature list
@@ -718,10 +721,14 @@ def run_ui():
             with st.spinner("Running agent loop…"):
                 DataLayer.update_live_data()
                 df, _ = DataLayer.load_cross_sectional_data()
-                for _ in range(5):
-                    AgentLoop.run_iteration(df)
-                main_predict()
-                st.success("Run complete!")
+                if df.empty:
+                    st.error("🚨 **No market data available!**")
+                    st.warning("If you are deploying on Streamlit Cloud, NEPSE's firewall blocks live scraping from international IPs. You must commit your local `data/` directory to GitHub so the Cloud app has historical data to read.")
+                else:
+                    for _ in range(5):
+                        AgentLoop.run_iteration(df)
+                    main_predict()
+                    st.success("Run complete!")
     mem = AgentLoop.load_memory()
     if mem:
         best_sharpe = max(m.get('sharpe', 0) for m in mem)
