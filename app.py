@@ -234,9 +234,15 @@ class DataLayer:
         Returns combined DataFrame and a fitted LabelEncoder for Symbol.
         """
         master_symbols = DataLayer.fetch_master_symbol_list()
+        
+        # If we failed to fetch a master list, just use whatever CSVs we already have
+        files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
+        if not master_symbols and files:
+            logging.info("Using local CSV files as master list since fetch failed.")
+            master_symbols = [os.path.basename(f).replace('.csv', '').upper() for f in files]
+            
         DataLayer.bootstrap_missing_symbols(master_symbols)
         DataLayer.purge_delisted_symbols(master_symbols)
-        files = glob.glob(os.path.join(DATA_DIR, "*.csv"))
         dfs = []
         macro = DataLayer.fetch_nrb_macro()
         for f in files:
