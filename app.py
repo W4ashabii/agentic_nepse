@@ -542,6 +542,41 @@ class ModelTrainer:
         return {"sharpe": sharpe, "calmar": calmar, "net_profit": net_profit}
 
     @staticmethod
+    def _sanitize_xgb_params(params: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize LLM-suggested XGBoost params to prevent crashes."""
+        VALID_XGB_OBJECTIVES = {
+            'reg:squarederror', 'reg:squaredlogerror', 'reg:logistic',
+            'reg:pseudohubererror', 'reg:absoluteerror', 'reg:quantileerror',
+            'reg:gamma', 'reg:tweedie', 'reg:linear',
+        }
+        safe = {k: v for k, v in params.items() if k in {
+            'n_estimators', 'learning_rate', 'max_depth', 'min_child_weight',
+            'subsample', 'colsample_bytree', 'gamma', 'reg_alpha', 'reg_lambda',
+            'objective', 'eval_metric', 'random_state', 'eta', 'n_jobs',
+        }}
+        obj = safe.get('objective', 'reg:squarederror')
+        if obj not in VALID_XGB_OBJECTIVES:
+            logging.warning(f"Invalid XGBoost objective '{obj}', falling back to 'reg:squarederror'")
+            safe['objective'] = 'reg:squarederror'
+        # 'eta' is the internal name for learning_rate; avoid passing both
+        if 'eta' in safe and 'learning_rate' in safe:
+            del safe['eta']
+        return safe
+
+    @staticmethod
+    def _sanitize_lgb_params(params: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize LLM-suggested LightGBM params to prevent crashes."""
+        safe = {k: v for k, v in params.items() if k in {
+            'n_estimators', 'num_iterations', 'learning_rate', 'max_depth',
+            'min_child_weight', 'subsample', 'colsample_bytree',
+            'objective', 'metric', 'random_state', 'num_leaves', 'n_jobs',
+            'verbose',
+        }}
+        safe.setdefault('objective', 'regression')
+        safe.setdefault('verbose', -1)
+        return safe
+
+    @staticmethod
     def train_and_evaluate(df: pd.DataFrame, params: Dict[str, Any], custom_features: Dict[str, str]) -> (float, float, float, float, float, Any, List[str]):
         df_clean = df.dropna().copy()
         if len(df_clean) < 100:
@@ -553,14 +588,16 @@ class ModelTrainer:
         mae_list, sharpe_list, calmar_list, profit_list, gt_score_list = [], [], [], [], []
         best_model = None
         scaler = StandardScaler()
+        xgb_params = ModelTrainer._sanitize_xgb_params(params.get('xgboost', {'n_estimators': 50, 'random_state': 42}))
+        lgb_params = ModelTrainer._sanitize_lgb_params(params.get('lightgbm', {'n_estimators': 50, 'random_state': 42}))
         for train_idx, val_idx in tscv.split(X):
             X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
             v_val = volumes.iloc[val_idx]
             X_train_sc = scaler.fit_transform(X_train)
             X_val_sc = scaler.transform(X_val)
-            xgb = XGBRegressor(**params.get('xgboost', {'n_estimators': 50, 'random_state': 42}))
-            lgb = LGBMRegressor(**params.get('lightgbm', {'n_estimators': 50, 'random_state': 42}))
+            xgb = XGBRegressor(**xgb_params)
+            lgb = LGBMRegressor(**lgb_params)
             xgb.fit(X_train_sc, y_train)
             lgb.fit(X_train_sc, y_train)
             preds = (xgb.predict(X_val_sc) + lgb.predict(X_val_sc)) / 2.0
