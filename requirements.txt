@@ -37,3 +37,6 @@ numexpr
 
 # Date and Time
 holidays
+
+# Enhanced quant features from nepse-quant-terminal integration
+# (no new deps - uses existing: pandas, numpy)

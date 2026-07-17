@@ -11,7 +11,21 @@ A production-ready, closed-loop agentic AI system for predicting NEPSE (Nepal St
 - **Diversified Portfolio Allocation:** Uses `PyPortfolioOpt` to compute portfolio weights based on cross-sectional predicted returns and 60-day historical covariance, heavily stabilized using **L2 Regularization** to prevent risky, concentrated allocations.
 - **Advanced Quant Features:** Generates 184+ indicators (using TA-Lib with a pure-Python `pandas_ta` fallback), continuous regime scores (20-day volatility percentiles), and incorporates macroeconomic data scraped from the Nepal Rastra Bank (NRB).
 - **Nepal Trading Calendar:** Intelligently schedules background tasks and trading logic by respecting Nepal's local trading schedule (closed on Fridays, Saturdays, and public holidays) using `holidays.Nepal()`.
-- **Headless & UI:** Features a Streamlit interactive dashboard and a headless mode designed for automated execution via GitHub Actions.
+
+## Enhanced Quant Features (from nepse-quant-terminal)
+
+- **Market Regime Detection:** Automatically detects bull/bear/neutral regimes using 60-day rolling NEPSE return, adjusting position limits and capital deployment accordingly.
+- **Gold/Silver Regime Overlay:** Determines risk-on/risk-off/neutral based on gold price volatility, adjusting capital deployment (90% risk-off, 97% neutral, 100% risk-on).
+- **Cross-Sectional Momentum:** Calculates 6-month minus 1-month momentum with momentum crash protection (skips last month).
+- **Quality Scoring:** Composite score based on ROE, debt-to-equity ratio, and earnings stability (coefficient of variation).
+- **Quarterly Fundamental Analysis:** Tracks EPS growth and revenue growth from quarterly filings for fundamental strength assessment.
+- **Regime-Aware Position Limits:** Reduces max positions in bear markets (3), maintains 8 in neutral, increases to 10 in bull markets.
+- **Walk-Forward Validation:** Slides train/test windows across 6+ years of history to validate out-of-sample performance robustness.
+- **Signal Strength Scoring:** Combines multiple signals (momentum, quality, fundamentals) to produce more robust buy/sell signals.
+
+## Headless & UI
+
+Features a Streamlit interactive dashboard and a headless mode designed for automated execution via GitHub Actions.
 
 ## Interactive Tools
 
@@ -118,6 +132,38 @@ Since standard GitHub runners have limited resources, you can configure GitHub R
 - **Infinity/Overflow Handling:** Added robust data cleaning to replace infinity values and clip extreme values before scaling to prevent sklearn validation errors
 - **Terminal Chat Enhancement:** Now loads and analyzes real CSV data from `data/{symbol}.csv` for accurate stock predictions
 - **Feature Generation Improvements:** Added idempotent `log` function replacement to prevent `np.np.log` errors
+- **Enhanced Quant Features (v2.0):** Integrated market regime detection, gold/silver regime overlay, cross-sectional momentum, quality scoring, quarterly fundamental analysis, walk-forward validation, and signal strength scoring from nepse-quant-terminal
+- **Regime-Aware Capital Deployment:** Auto-adjusts capital deployment based on market and gold regimes (90%-100%)
+- **Enhanced Signal Generation:** Combines multiple signals for more robust predictions with XSec Momentum, Quality Score, and Fund Score columns in predictions
+
+## Usage: Enhanced Quant Features
+
+The enhanced quant features can be used programmatically:
+
+```python
+from enhanced_quant import (
+    get_regime_score, get_gold_regime, calculate_xsec_momentum,
+    calculate_quality_score, apply_regime_filter, walk_forward_validation
+)
+
+# Detect market regime
+regime = get_regime_score(df, window=60)
+
+# Get gold regime for capital deployment
+gold_regime = get_gold_regime()
+
+# Calculate momentum scores
+momentum = calculate_xsec_momentum(prices_df, symbols, lookback=180)
+
+# Calculate quality scores
+quality = calculate_quality_score(fundamentals_df)
+
+# Apply regime filter
+filtered = apply_regime_filter(predictions, regime)
+
+# Walk-forward validation
+results = walk_forward_validation(df, model_trainer, train_start, train_end)
+```
 
 ## Limitations & Risks
 

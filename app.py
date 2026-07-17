@@ -10,6 +10,7 @@ This file contains the full production‑ready system with:
 - Portfolio optimization using PyPortfolioOpt with L2 regularization (fallback to HRP)
 - Time‑budget enforcement for daily runs and Optuna trial caps
 - Streamlit UI with expanded metrics
+- Enhanced quant features from nepse-quant-terminal (regime detection, walk-forward validation, quality/momentum signals)
 """
 
 import os
@@ -36,6 +37,14 @@ except ImportError:
 import numpy as np
 import pandas as pd
 import requests
+
+# Import enhanced quant features from nepse-quant-terminal integration
+from enhanced_quant import (
+    is_trading_day, get_regime_score, get_gold_regime,
+    get_capital_deployment_percentage, calculate_xsec_momentum,
+    calculate_quality_score, calculate_quarterly_fundamental_scores,
+    apply_regime_filter, walk_forward_validation
+)
 try:
     from bs4 import BeautifulSoup
 except ImportError:
@@ -627,22 +636,33 @@ class ModelTrainer:
         return safe
 
     @staticmethod
-    def train_and_evaluate(df: pd.DataFrame, params: Dict[str, Any], custom_features: Dict[str, str]) -> (float, float, float, float, float, Any, List[str]):
+    def train_and_evaluate(df: pd.DataFrame, params: Dict[str, Any], custom_features: Dict[str, str]) -> (float, float, float, float, float, Any, List[str], str):
         df_clean = df.dropna().copy()
         # Replace inf values with NaN before further processing
         df_clean = df_clean.replace([np.inf, -np.inf], np.nan)
         df_clean = df_clean.dropna()
         if len(df_clean) < 100:
-            return 999.0, 0.0, 0.0, 0.0, 0.0, None, []
+            return 999.0, 0.0, 0.0, 0.0, 0.0, None, [], 'neutral'
         X = df_clean.drop(columns=['Date', 'Target', 'Symbol'], errors='ignore')
         y = df_clean['Target']
         volumes = df_clean['Volume']
+        
+        # Detect market regime
+        df_regime = df_clean.copy()
+        if 'NEPSE_Index' in df_regime.columns:
+            df_regime['Market_Return'] = df_regime['NEPSE_Index'].pct_change()
+        else:
+            df_regime['Market_Return'] = df_regime.groupby('Date')['Close'].transform(lambda x: x.pct_change().mean())
+        regime_score = df_regime['Market_Return'].rolling(60).mean().iloc[-1] if len(df_regime) > 60 else 0
+        regime = 'bull' if regime_score > 0.02 else ('bear' if regime_score < -0.02 else 'neutral')
+        
         tscv = TimeSeriesSplit(n_splits=3)
         mae_list, sharpe_list, calmar_list, profit_list, gt_score_list = [], [], [], [], []
         best_model = None
         scaler = StandardScaler()
         xgb_params = ModelTrainer._sanitize_xgb_params(params.get('xgboost', {'n_estimators': 50, 'random_state': 42}))
         lgb_params = ModelTrainer._sanitize_lgb_params(params.get('lightgbm', {'n_estimators': 50, 'random_state': 42}))
+        
         for train_idx, val_idx in tscv.split(X):
             X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
@@ -659,6 +679,11 @@ class ModelTrainer:
             preds = (xgb.predict(X_val_sc) + lgb.predict(X_val_sc)) / 2.0
             mae = mean_absolute_error(y_val, preds)
             metrics = ModelTrainer.run_backtest(y_val.values, preds, v_val.values)
+            
+            # Apply regime-based capital deployment adjustment
+            capital_pct = get_capital_deployment_percentage(get_gold_regime())
+            metrics['net_profit'] *= capital_pct
+            
             mae_list.append(mae)
             sharpe_list.append(metrics['sharpe'])
             calmar_list.append(metrics['calmar'])
@@ -671,7 +696,7 @@ class ModelTrainer:
         final_sharpe = np.mean(sharpe_list)
         final_calmar = np.mean(calmar_list)
         final_profit = np.mean(profit_list)
-        return final_mae, final_sharpe, final_calmar, final_profit, final_gt_score, best_model, X.columns.tolist()
+        return final_mae, final_sharpe, final_calmar, final_profit, final_gt_score, best_model, X.columns.tolist(), regime
 
 # ------------------------------------------------------------
 # Portfolio Optimizer
@@ -765,8 +790,8 @@ Return JSON exactly like this:
             feat_df = FeatureEngineer.add_retail_sentiment(feat_df)
             dfs.append(feat_df)
         final_df = pd.concat(dfs, ignore_index=True)
-        mae, sharpe, calmar, profit, gt_score, model, cols = ModelTrainer.train_and_evaluate(final_df, sugg, custom_feats)
-        # Promotion rule
+        mae, sharpe, calmar, profit, gt_score, model, cols, regime = ModelTrainer.train_and_evaluate(final_df, sugg, custom_feats)
+        # Promotion rule with regime-aware capital deployment
         best_sharpe = max([m.get('sharpe', -999) for m in mem]) if mem else -999
         best_calmar = max([m.get('calmar', -999) for m in mem]) if mem else -999
         best_mae = min([m.get('mae', 999) for m in mem]) if mem else 999
@@ -778,9 +803,12 @@ Return JSON exactly like this:
             "calmar": float(calmar),
             "profit": float(profit),
             "gt_score": float(gt_score),
+            "regime": regime,
             "timestamp": datetime.now().isoformat()
         }
-        if (sharpe > best_sharpe and calmar > best_calmar and mae <= best_mae * 1.05 and gt_score >= 0.50):
+        # Regime-aware promotion threshold
+        gt_threshold = 0.45 if regime == 'bear' else 0.50
+        if (sharpe > best_sharpe and calmar > best_calmar and mae <= best_mae * 1.05 and gt_score >= gt_threshold):
             joblib.dump({"model": model, "features": cols, "custom_feats": custom_feats, "le": combined_df['Symbol_Encoded']}, MODEL_FILE)
             attempt["promoted"] = True
         else:
@@ -825,20 +853,69 @@ def main_predict():
     preds = (xgb.predict(X_sc) + lgb.predict(X_sc)) / 2.0
     today_rows['Predicted Return'] = preds
     pred_dict = dict(zip(today_rows['Symbol'], today_rows['Predicted Return']))
-    weights = PortfolioOptimizer.optimize(pred_dict, prices_df.tail(60))
+    
+    # Apply regime filter
+    regime = 'neutral'
+    if len(df) > 60:
+        df_sorted = df.sort_values('Date')
+        market_ret = df_sorted['Close'].pct_change().rolling(60).mean().iloc[-1] if len(df_sorted) > 60 else 0
+        regime = 'bull' if market_ret > 0.02 else ('bear' if market_ret < -0.02 else 'neutral')
+    
+    # Get capital deployment percentage based on regime
+    capital_pct = get_capital_deployment_percentage(get_gold_regime())
+    
+    # Regime limits
+    regime_limits = {'bull': 10, 'neutral': 8, 'bear': 3}
+    max_positions = regime_limits.get(regime, 8)
+    
+    # Filter predictions based on regime
+    filtered_preds = apply_regime_filter(pred_dict, regime, regime_limits)
+    
+    # Calculate additional signals
+    symbols = list(filtered_preds.keys())
+    xsec_momentum = calculate_xsec_momentum(prices_df, symbols)
+    quality_scores = calculate_quality_score()
+    fund_scores = calculate_quarterly_fundamental_scores(df) if 'EPS' in df.columns else {}
+    
+    weights = PortfolioOptimizer.optimize(filtered_preds, prices_df.tail(60))
     results = []
     for _, row in today_rows.iterrows():
         sym = row['Symbol']
-        pred = row['Predicted Return']
-        w = weights.get(sym, 0.0) * 100
+        if sym not in filtered_preds:
+            continue
+        pred = filtered_preds[sym]
+        w = weights.get(sym, 0.0) * 100 * capital_pct
         rs = row.get('regime_score', 0.5)
+        
+        # Combine signals for strength
+        signal_strength = 0.0
+        if sym in xsec_momentum:
+            signal_strength += 0.3 * min(max(xsec_momentum[sym], -0.5), 0.5) / 0.5
+        if sym in quality_scores:
+            signal_strength += 0.2 * quality_scores[sym]
+        if sym in fund_scores:
+            signal_strength += 0.2 * fund_scores[sym]
+        
+        # Determine signal
+        if pred > 0.02:
+            signal = 'Strong Buy' if signal_strength > -0.2 else 'Buy'
+        elif pred > 0.005:
+            signal = 'Buy' if signal_strength > -0.3 else 'Neutral'
+        elif pred < -0.005:
+            signal = 'Sell' if signal_strength < 0.2 else 'Neutral'
+        else:
+            signal = 'Neutral'
+        
         results.append({
             'Symbol': sym,
             'Current Price': row['Close'],
             'Predicted Change %': pred * 100,
             'Regime Score': rs,
             'Allocation %': w,
-            'Signal': 'Strong Buy' if pred > 0.02 else ('Buy' if pred > 0.005 else ('Sell' if pred < -0.005 else 'Neutral'))
+            'Signal': signal,
+            'XSec Momentum': xsec_momentum.get(sym, 0),
+            'Quality Score': quality_scores.get(sym, 0.5),
+            'Fund Score': fund_scores.get(sym, 0.5)
         })
     res_df = pd.DataFrame(results)
     res_df.to_csv(PREDICTIONS_FILE, index=False)
@@ -875,6 +952,26 @@ def run_ui():
     if os.path.exists(PREDICTIONS_FILE):
         preds = pd.read_csv(PREDICTIONS_FILE)
         st.subheader("💡 Today's Market Predictions & Allocations")
+        
+        # Detect current regime
+        regime = 'neutral'
+        if 'regime' in preds.columns:
+            regime = preds['regime'].iloc[-1] if 'regime' in preds.columns else 'neutral'
+        else:
+            try:
+                df_test, _ = DataLayer.load_cross_sectional_data()
+                if len(df_test) > 60:
+                    df_sorted = df_test.sort_values('Date')
+                    market_ret = df_sorted['Close'].pct_change().rolling(60).mean().iloc[-1]
+                    regime = 'bull' if market_ret > 0.02 else ('bear' if market_ret < -0.02 else 'neutral')
+            except:
+                pass
+        
+        gold_regime = get_gold_regime()
+        capital_pct = get_capital_deployment_percentage(gold_regime)
+        
+        # Display regime info
+        st.info(f"📊 **Current Market Regime:** {regime.upper()} | 💰 **Gold Regime:** {gold_regime.upper()} | 💵 **Capital Deployment:** {capital_pct*100:.0f}%")
         
         # Display Charts
         col1, col2 = st.columns(2)
