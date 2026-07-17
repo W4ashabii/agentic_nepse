@@ -606,8 +606,12 @@ class AgentLoop:
     @staticmethod
     def load_memory() -> List[Dict[str, Any]]:
         if os.path.exists(MEMORY_FILE):
-            with open(MEMORY_FILE, 'r') as f:
-                return json.load(f)
+            try:
+                with open(MEMORY_FILE, 'r') as f:
+                    return json.load(f)
+            except json.JSONDecodeError:
+                logging.warning(f"Corrupt or empty {MEMORY_FILE} detected. Initializing new memory.")
+                return []
         return []
 
     @staticmethod
