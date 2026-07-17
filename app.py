@@ -376,6 +376,9 @@ class FeatureEngineer:
             df[f'Lag_{lag}_Log_Ret'] = df['Log_Ret'].shift(lag)
         # Target – next‑day percentage change
         df['Target'] = (df['Close'].shift(-1) - df['Close']) / df['Close']
+        # Replace inf/NaN values
+        df = df.replace([np.inf, -np.inf], np.nan)
+        df = df.dropna()
         return df
 
     @staticmethod
@@ -406,12 +409,16 @@ class FeatureEngineer:
         for fname, formula in allowed_items:
             try:
                 # Replace allowed function names with numpy equivalents
+                # Handle both "log(" -> "np.log(" and "np.log(" -> "np.log(" (idempotent)
                 for short, full in allowed_functions.items():
+                    formula = formula.replace(full + "(", full + "(")
                     formula = formula.replace(short + "(", full + "(")
                 # Ensure no disallowed characters/operators
                 if any(op in formula for op in ["**", "pow", "np.power"]):
                     raise ValueError("Exponentiation beyond squares is prohibited")
                 df[fname] = ne.evaluate(formula, local_dict=allowed_names)
+                # Replace inf/NaN values immediately after feature creation
+                df[fname] = df[fname].replace([np.inf, -np.inf], np.nan)
             except Exception as e:
                 logging.warning(f"Sandbox feature '{fname}' failed: {e}")
         return df
@@ -622,6 +629,9 @@ class ModelTrainer:
     @staticmethod
     def train_and_evaluate(df: pd.DataFrame, params: Dict[str, Any], custom_features: Dict[str, str]) -> (float, float, float, float, float, Any, List[str]):
         df_clean = df.dropna().copy()
+        # Replace inf values with NaN before further processing
+        df_clean = df_clean.replace([np.inf, -np.inf], np.nan)
+        df_clean = df_clean.dropna()
         if len(df_clean) < 100:
             return 999.0, 0.0, 0.0, 0.0, 0.0, None, []
         X = df_clean.drop(columns=['Date', 'Target', 'Symbol'], errors='ignore')
@@ -637,8 +647,11 @@ class ModelTrainer:
             X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
             v_val = volumes.iloc[val_idx]
-            X_train_sc = scaler.fit_transform(X_train)
-            X_val_sc = scaler.transform(X_val)
+            # Clip extreme values before scaling
+            X_train_clipped = X_train.clip(lower=-1e10, upper=1e10)
+            X_val_clipped = X_val.clip(lower=-1e10, upper=1e10)
+            X_train_sc = scaler.fit_transform(X_train_clipped)
+            X_val_sc = scaler.transform(X_val_clipped)
             xgb = XGBRegressor(**xgb_params)
             lgb = LGBMRegressor(**lgb_params)
             xgb.fit(X_train_sc, y_train)
@@ -883,7 +896,7 @@ def run_ui():
             preds.style.background_gradient(subset=['Predicted Change %'], cmap='RdYlGn')
                       .background_gradient(subset=['Allocation %'], cmap='Greens')
                       .format({'Current Price': 'Rs {:.2f}', 'Predicted Change %': '{:.2f}%', 'Regime Score': '{:.2f}', 'Allocation %': '{:.2f}%'}),
-            use_container_width=True
+            width='stretch'
         )
 
 if __name__ == "__main__":

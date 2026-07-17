@@ -1,0 +1,296 @@
+[
+  {
+    "attempt_number": 1,
+    "hyperparams": {
+      "xgboost": {
+        "max_depth": 3,
+        "n_estimators": 50,
+        "learning_rate": 0.1,
+        "subsample": 0.8,
+        "colsample_bytree": 0.9
+      },
+      "lightgbm": {
+        "num_leaves": 32,
+        "max_depth": -1,
+        "objective": "regression",
+        "metric": "rmse",
+        "learning_rate": 0.1,
+        "feature_fraction": 0.8
+      },
+      "new_features": {
+        "MyFeat": "(High + Low) / 2"
+      }
+    },
+    "resulting_mae": 0.014115961432807753,
+    "sharpe": 0.6035830563182655,
+    "calmar": 1.177190997761852e-05,
+    "profit": 7.586190494764611,
+    "gt_score": 0.524753810872791,
+    "timestamp": "2026-07-18T02:05:31.780291",
+    "promoted": true
+  },
+  {
+    "attempt_number": 2,
+    "hyperparams": {
+      "xgboost": {
+        "colsample_bytree": 0.8,
+        "subsample": 0.9,
+        "eta": 0.3,
+        "max_depth": 7,
+        "objective": "reg:squarederror"
+      },
+      "lightgbm": {
+        "num_leaves": 32,
+        "min_data_in_leaf": 20,
+        "lambda_l1": 0.1,
+        "lambda_l2": 0.1,
+        "feature_fraction": 0.9,
+        "objective": "regression",
+        "metric": "l2"
+      },
+      "new_features": {
+        "MyFeat": "(Close - Open) / Low * (1 + interest_rate)"
+      }
+    },
+    "resulting_mae": 0.015067832573832618,
+    "sharpe": 0.6607125080178962,
+    "calmar": 1.23098640499702e-05,
+    "profit": 7.581153850802845,
+    "gt_score": 0.5299608795359504,
+    "timestamp": "2026-07-18T02:06:02.723172",
+    "promoted": true
+  },
+  {
+    "attempt_number": 3,
+    "hyperparams": {
+      "xgboost": {
+        "colsample_bytree": 0.8,
+        "subsample": 0.9,
+        "n_estimators": 500,
+        "learning_rate": 0.1
+      },
+      "lightgbm": {
+        "colsample_bytree": 0.8,
+        "subsample": 0.9,
+        "num_leaves": 32,
+        "lambda_l1": 0.1
+      },
+      "new_features": {
+        "MyFeat": "(Close - (Open + High + Low) / 3) * InterestRate"
+      }
+    },
+    "resulting_mae": 0.01506269214309247,
+    "sharpe": 0.6602663102335123,
+    "calmar": 5.8254713975900295e-06,
+    "profit": 7.367106874110988,
+    "gt_score": 0.5221367867260219,
+    "timestamp": "2026-07-18T02:06:44.085112",
+    "promoted": false
+  },
+  {
+    "attempt_number": 4,
+    "hyperparams": {
+      "xgboost": {
+        "eval_metric": "rmse",
+        "num_boost_round": 100,
+        "max_depth": 4,
+        "eta": 0.3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.7
+      },
+      "lightgbm": {
+        "objective": "regression",
+        "metric": "rmse",
+        "num_leaves": 31,
+        "learning_rate": 0.05,
+        "feature_fraction": 0.9,
+        "bagging_freq": 1
+      },
+      "new_features": {
+        "MyFeat": "(Close - Open) / np.sqrt((Open**2 + Close**2)/2)"
+      }
+    },
+    "resulting_mae": 0.015070080263907222,
+    "sharpe": 0.4687103791778296,
+    "calmar": -6.833897536122294e-06,
+    "profit": 5.568792001181795,
+    "gt_score": 0.5142317550249561,
+    "timestamp": "2026-07-18T02:06:52.959758",
+    "promoted": false
+  },
+  {
+    "attempt_number": 5,
+    "hyperparams": {
+      "xgboost": {
+        "eval_metric": "mae",
+        "num_boost_round": 300,
+        "max_depth": 12,
+        "eta": 0.05,
+        "subsample": 0.8,
+        "colsample_bytree": 0.9
+      },
+      "lightgbm": {
+        "objective": "regression",
+        "metric": "mae",
+        "max_depth": 12,
+        "num_leaves": 64,
+        "learning_rate": 0.05,
+        "bagging_freq": 5,
+        "feature_fraction": 0.8
+      },
+      "new_features": {
+        "MyFeat": "(np.power(np.log((Close - Open) / Open), 2) + np.square(np.diff(Close)))"
+      }
+    },
+    "resulting_mae": 0.014344249085461759,
+    "sharpe": 0.7501436811509038,
+    "calmar": 2.964337430740434e-06,
+    "profit": 9.269891090092289,
+    "gt_score": 0.528072305409416,
+    "timestamp": "2026-07-18T02:07:43.414619",
+    "promoted": false
+  },
+  {
+    "attempt_number": 6,
+    "hyperparams": {
+      "xgboost": {
+        "col1": "(Close - Open) / Open",
+        "col2": "np.log(Inter_bank_rate + 1)",
+        "col3": "Volume * (Close - Low) / Close"
+      },
+      "lightgbm": {
+        "col1": "(Close - Open) / Open",
+        "col2": "np.log(Inter_bank_rate + 1)",
+        "col3": "Volume * (Close - Low) / Close"
+      },
+      "new_features": {
+        "MyFeat": "Symbol_Encoded + np.log(traded_amount + 1)"
+      }
+    },
+    "resulting_mae": 0.015485435900266395,
+    "sharpe": 0.456578640940815,
+    "calmar": -1.4302007432293787e-05,
+    "profit": 5.02470893648411,
+    "gt_score": 0.5148048452220727,
+    "timestamp": "2026-07-18T02:30:27.708659",
+    "promoted": false
+  },
+  {
+    "attempt_number": 7,
+    "hyperparams": {
+      "xgboost": {
+        "colsample_bytree": 0.8,
+        "subsample": 0.9,
+        "reg_alpha": 1,
+        "learning_rate": 0.05,
+        "max_depth": 7,
+        "n_estimators": 50
+      },
+      "lightgbm": {
+        "colsample_bytree": 0.8,
+        "subsample": 0.9,
+        "reg_alpha": 1,
+        "learning_rate": 0.05,
+        "max_depth": 7,
+        "n_estimators": 50
+      },
+      "new_features": {
+        "MyFeat": "(Close - (Open + High + Low) / 3) / Open"
+      }
+    },
+    "resulting_mae": 0.013626740763957734,
+    "sharpe": 0.8224073610591228,
+    "calmar": 7.844911321945228e-07,
+    "profit": 9.633802299232386,
+    "gt_score": 0.54245177209511,
+    "timestamp": "2026-07-18T02:30:39.093108",
+    "promoted": false
+  },
+  {
+    "attempt_number": 8,
+    "hyperparams": {
+      "xgboost": {
+        "colsample_bytree": 0.8,
+        "subsample": 0.9,
+        "n_estimators": 500,
+        "max_depth": 6
+      },
+      "lightgbm": {
+        "num_leaves": 32,
+        "min_child_samples": 10,
+        "learning_rate": 0.05,
+        "feature_fraction": 0.7
+      },
+      "new_features": {
+        "MyFeat": "(Close - Open) / np.sqrt((Open ** 2 + Close ** 2) / 2)"
+      }
+    },
+    "resulting_mae": 0.015861579252226327,
+    "sharpe": 0.493009617266986,
+    "calmar": -1.9333506617306736e-05,
+    "profit": 4.9546902956275725,
+    "gt_score": 0.5142720951099148,
+    "timestamp": "2026-07-18T02:32:40.172907",
+    "promoted": false
+  },
+  {
+    "attempt_number": 9,
+    "hyperparams": {
+      "xgboost": {
+        "objective": "reg:linear",
+        "eval_metric": "mae",
+        "n_estimators": 100,
+        "colsample_bytree": 0.8,
+        "subsample": 0.8,
+        "seed": 23
+      },
+      "lightgbm": {
+        "objective": "regression",
+        "metric": "mae",
+        "n_estimators": 100,
+        "colsample_bytree": 0.8,
+        "subsample": 0.8,
+        "seed": 23
+      },
+      "new_features": {
+        "MyFeat": "(Close - Open) / Open"
+      }
+    },
+    "resulting_mae": 0.015167298028628875,
+    "sharpe": 0.5780296415560472,
+    "calmar": 2.725776671565093e-05,
+    "profit": 6.442781814986158,
+    "gt_score": 0.5231045311799013,
+    "timestamp": "2026-07-18T02:33:24.650615",
+    "promoted": false
+  },
+  {
+    "attempt_number": 10,
+    "hyperparams": {
+      "xgboost": {
+        "learning_rate": 0.3,
+        "n_estimators": 100,
+        "max_depth": 3,
+        "subsample": 1.0,
+        "colsample_bytree": 1.0
+      },
+      "lightgbm": {
+        "learning_rate": 0.2,
+        "num_boost_round": 150,
+        "max_depth": 4,
+        "num_leaves": 31,
+        "subsample_for_bin": 20000
+      },
+      "new_features": {
+        "MyFeat": "(np.log(per_change + 1) - np.log(pe_ratio + 1))"
+      }
+    },
+    "resulting_mae": 0.014715210955830435,
+    "sharpe": 0.4716072555129234,
+    "calmar": 1.3382978616935875e-05,
+    "profit": 5.282806527437467,
+    "gt_score": 0.5167115298340063,
+    "timestamp": "2026-07-18T02:33:32.068049",
+    "promoted": false
+  }
+]
