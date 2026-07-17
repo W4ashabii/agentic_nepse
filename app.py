@@ -155,6 +155,10 @@ class DataLayer:
     def purge_delisted_symbols(master_list: List[str]):
         """Remove any CSV files for symbols not present in master list.
         """
+        if not master_list:
+            logging.warning("Master list is empty (likely due to network failure). Skipping purge to protect local data.")
+            return
+            
         for csv_file in glob.glob(os.path.join(DATA_DIR, "*.csv")):
             sym = os.path.basename(csv_file).replace('.csv', '').upper()
             if sym not in master_list:
