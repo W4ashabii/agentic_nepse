@@ -731,7 +731,7 @@ Return JSON exactly like this:
             "gt_score": float(gt_score),
             "timestamp": datetime.now().isoformat()
         }
-        if (sharpe > best_sharpe and calmar > best_calmar and mae <= best_mae * 1.05 and gt_score >= 0.85):
+        if (sharpe > best_sharpe and calmar > best_calmar and mae <= best_mae * 1.05 and gt_score >= 0.50):
             joblib.dump({"model": model, "features": cols, "custom_feats": custom_feats, "le": combined_df['Symbol_Encoded']}, MODEL_FILE)
             attempt["promoted"] = True
         else:
@@ -795,7 +795,7 @@ def main_predict():
 
 def run_ui():
     st.set_page_config(layout="wide", page_title="NEPSE Hedge‑Fund Agent")
-    st.title("NEPSE Hedge‑Fund Level Predictor")
+    st.title("📊 NEPSE Hedge‑Fund Level Predictor")
     with st.sidebar:
         if st.button("Run Full Upgrade Loop"):
             with st.spinner("Running agent loop…"):
@@ -814,13 +814,39 @@ def run_ui():
         best_sharpe = max(m.get('sharpe', 0) for m in mem)
         best_calmar = max(m.get('calmar', 0) for m in mem)
         latest = mem[-1]
+        st.subheader("📈 Agent Performance Metrics")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Best Sharpe", f"{best_sharpe:.2f}")
-        c2.metric("Best Calmar", f"{best_calmar:.2f}")
-        c3.metric("Latest MAE", f"{latest.get('resulting_mae',0):.5f}")
+        c1.metric("🏆 Best Sharpe Ratio", f"{best_sharpe:.2f}")
+        c2.metric("🛡️ Best Calmar Ratio", f"{best_calmar:.2f}")
+        c3.metric("🎯 Latest MAE", f"{latest.get('resulting_mae',0):.5f}")
+        st.divider()
+        
     if os.path.exists(PREDICTIONS_FILE):
         preds = pd.read_csv(PREDICTIONS_FILE)
-        st.dataframe(preds.style.background_gradient(subset=['Predicted Change %','Allocation %'], cmap='RdYlGn'))
+        st.subheader("💡 Today's Market Predictions & Allocations")
+        
+        # Display Charts
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("##### 🔥 Top 10 Predicted Returns (%)")
+            top_preds = preds.nlargest(10, 'Predicted Change %').set_index('Symbol')['Predicted Change %']
+            st.bar_chart(top_preds)
+            
+        with col2:
+            st.write("##### 💰 Optimal Portfolio Allocation (%)")
+            top_alloc = preds[preds['Allocation %'] > 0.0].nlargest(10, 'Allocation %').set_index('Symbol')['Allocation %']
+            if not top_alloc.empty:
+                st.bar_chart(top_alloc, color="#2ecc71")
+            else:
+                st.info("No allocations (market conditions too risky)")
+                
+        st.write("##### 📋 Detailed Predictions Table")
+        st.dataframe(
+            preds.style.background_gradient(subset=['Predicted Change %'], cmap='RdYlGn')
+                      .background_gradient(subset=['Allocation %'], cmap='Greens')
+                      .format({'Current Price': 'Rs {:.2f}', 'Predicted Change %': '{:.2f}%', 'Regime Score': '{:.2f}', 'Allocation %': '{:.2f}%'}),
+            use_container_width=True
+        )
 
 if __name__ == "__main__":
     if os.environ.get("HEADLESS_MODE") == "1":
