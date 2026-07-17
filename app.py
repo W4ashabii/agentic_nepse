@@ -109,7 +109,7 @@ class DataLayer:
         """Return the authoritative list of currently listed NEPSE symbols.
         Primary source: ShareSansar API. Fallback: a static CSV shipped with the repo.
         """
-        primary_url = "https://share.sansar.com/api/symbols"
+        primary_url = "https://www.sharesansar.com/api/symbols"
         try:
             r = requests.get(primary_url, timeout=10)
             if r.status_code == 200:
@@ -138,7 +138,7 @@ class DataLayer:
             file_path = os.path.join(DATA_DIR, f"{sym}.csv")
             if os.path.exists(file_path):
                 continue
-            url = f"https://share.sansar.com/api/history/{sym}.json"
+            url = f"https://www.sharesansar.com/api/history/{sym}.json"
             try:
                 r = requests.get(url, timeout=10)
                 if r.status_code == 200:
@@ -269,7 +269,7 @@ class DataLayer:
         """Scrape EPS, PE, Book Value from ShareSansar company profile.
         Returns a dict with keys: eps, pe_ratio, book_value.
         """
-        url = f"https://share.sansar.com/company/{symbol.lower()}.html"
+        url = f"https://www.sharesansar.com/company/{symbol.lower()}.html"
         fundamentals = {"eps": np.nan, "pe_ratio": np.nan, "book_value": np.nan}
         try:
             r = requests.get(url, timeout=10)
