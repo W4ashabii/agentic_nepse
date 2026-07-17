@@ -34,3 +34,6 @@ backtrader
 
 # Expression engine (sandboxed feature eval)
 numexpr
+
+# Date and Time
+holidays

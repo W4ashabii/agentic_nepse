@@ -6,9 +6,11 @@ A production-ready, closed-loop agentic AI system for predicting NEPSE (Nepal St
 
 - **Universal Cross-Sectional Model:** Pools all NEPSE symbols into a single massive dataset to solve the short-history and thin-liquidity problems. Learns universal market patterns simultaneously using XGBoost and LightGBM.
 - **Secure Sandboxed Feature Invention:** An LLM (Qwen2.5:3b via Ollama, or an external provider) acts as a quantitative researcher. It reviews past iterations and invents completely novel mathematical features dynamically. This utilizes `pandas.eval()` to ensure strict mathematical security and prevent arbitrary code execution.
-- **Volume-Aware Sharpe Backtester:** Models are evaluated via a realistic trading simulator that penalizes low-volume stocks with dynamic slippage (up to 1%+). The agent only promotes models that improve the Sharpe Ratio while keeping the Mean Absolute Error (MAE) stable.
+- **Volume-Aware Sharpe Backtester:** Models are evaluated via a realistic trading simulator that penalizes low-volume stocks with dynamic slippage (up to 1%+).
+- **Hedge-Fund Level Metrics:** Implements strict risk-management and trading realism. It enforces T+2 settlement capital lockups, applies realistic bid-ask spreads, and filters models using a rigid **GT-Score** (Win Rate + Edge + Profit Factor) before promotion.
 - **Diversified Portfolio Allocation:** Uses `PyPortfolioOpt` to compute portfolio weights based on cross-sectional predicted returns and 60-day historical covariance, heavily stabilized using **L2 Regularization** to prevent risky, concentrated allocations.
 - **Advanced Quant Features:** Generates 184+ indicators (using TA-Lib with a pure-Python `pandas_ta` fallback), continuous regime scores (20-day volatility percentiles), and incorporates macroeconomic data scraped from the Nepal Rastra Bank (NRB).
+- **Nepal Trading Calendar:** Intelligently schedules background tasks and trading logic by respecting Nepal's local trading schedule (closed on Fridays, Saturdays, and public holidays) using `holidays.Nepal()`.
 - **Headless & UI:** Features a Streamlit interactive dashboard and a headless mode designed for automated execution via GitHub Actions.
 
 ## Requirements
@@ -45,25 +47,40 @@ To visualize data, trigger the agent loop manually, and view the allocation tabl
 streamlit run app.py
 ```
 Click **Run Full Upgrade Loop** in the sidebar to start the training iterations.
-*New:* The promotion logic now includes a **GT‑Score ≥ 0.85** to select robust models.
+*New:* The promotion logic now incorporates a **GT‑Score ≥ 0.85** threshold (factoring in Win Rate, Edge, and Profit Factor) to guarantee that only strictly robust models are promoted to production.
 
-### 4. Qwen Knowledge‑Base Terminal
-Interact with the Qwen model via a simple terminal‑style UI.
+### 2. Qwen Knowledge‑Base Terminal
+Interact with the Qwen model via a customized terminal‑style Streamlit UI featuring a distinct blue tech-aesthetic:
 ```bash
 streamlit run terminal_chat.py
 ```
 
-### 2. Terminal Reader
+### 3. Terminal Reader
 To view a quick summary of the top 5 predicted gainers and losers, along with their suggested portfolio allocations:
 ```bash
 python terminal_reader.py
 ```
 
-### 3. Headless Mode
+### 4. Headless Mode
 To run the agent non-interactively (e.g. on a server cron job):
 ```bash
 export HEADLESS_MODE=1
 python app.py
+```
+
+## Docker Deployment (Optional)
+
+You can run the Agentic NEPSE system within a Docker container.
+
+```bash
+# 1. Build the image
+docker build -t agentic-nepse -f docker/Dockerfile .
+
+# 2. Run the Streamlit terminal chat interface
+docker run -p 8501:8501 agentic-nepse
+
+# 3. Alternatively, run the headless model training
+docker run -e HEADLESS_MODE=1 agentic-nepse python app.py
 ```
 
 ## Running Tests
@@ -87,3 +104,4 @@ Since standard GitHub runners have limited resources, you can configure GitHub R
 ## Limitations & Risks
 
 1. **Macro Scraping Fragility:** The scraper fetching data from the Nepal Rastra Bank (NRB) relies on the specific HTML structure of their public website. If NRB updates their frontend, the scraper may fail and silently revert to default placeholder macroeconomic values.
+2. **Python Version Compatibility:** The system avoids dependencies with highly rigid C-extensions (like `tensorflow` or `numba`/`shap`) to ensure it builds successfully even on very modern interpreters (e.g., Python 3.14+). Ensure your environment is fully compatible with standard scientific Python stack tools.
