@@ -1,0 +1,73 @@
+name: Agentic NEPSE Predictor Daily Run
+
+on:
+  schedule:
+    - cron: '0 10 * * 0-4' # Runs at 10:00 AM UTC on Sunday to Thursday
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write # Needed to commit files back
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install TA-Lib System Dependencies
+        run: |
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib/
+          ./configure --prefix=/usr
+          make
+          sudo make install
+          cd ..
+          rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+
+      - name: Install Python Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Setup Ollama (if no remote API key provided)
+        if: env.LLM_PROVIDER == ''
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+          ollama pull qwen2.5:3b
+        env:
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+
+      - name: Run NEPSE Agent
+        env:
+          LLM_PROVIDER: ${{ secrets.LLM_PROVIDER }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL || 'qwen2.5:3b' }}
+        run: |
+          # We run app.py with a specific flag or environment variable to execute headless training/inference
+          export HEADLESS_MODE=1
+          python app.py
+
+      - name: Check for changes and Commit
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/ memory.json best_model.pkl augmented_v2.csv latest_predictions.csv || true
+          # Only commit if there are changes
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-update models and predictions [skip ci]"
+            git push
+          else
+            echo "No changes to commit."
+          fi

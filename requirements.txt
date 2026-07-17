@@ -1,0 +1,36 @@
+# Core
+streamlit
+pandas
+numpy
+scikit-learn
+joblib
+
+# ML models
+xgboost
+lightgbm
+
+# Hyperparameter tuning
+optuna
+
+# Portfolio optimization
+PyPortfolioOpt
+
+# Visualization
+matplotlib
+plotly
+
+# Data scraping & parsing
+nepse-scraper
+requests
+beautifulsoup4
+feedparser
+
+# NLP / sentiment
+vaderSentiment
+textblob
+
+# Backtesting
+backtrader
+
+# Expression engine (sandboxed feature eval)
+numexpr
