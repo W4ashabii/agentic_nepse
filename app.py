@@ -295,14 +295,14 @@ class DataLayer:
         Returns a dict with keys: eps, pe_ratio, book_value.
         """
         url = f"https://www.sharesansar.com/company/{symbol.lower()}.html"
-        fundamentals = {"eps": np.nan, "pe_ratio": np.nan, "book_value": np.nan}
+        # Default to 0.0 so df.dropna() doesn't wipe the entire dataset if scraping fails
+        fundamentals = {"eps": 0.0, "pe_ratio": 0.0, "book_value": 0.0}
         try:
             r = requests.get(url, timeout=10)
             soup = BeautifulSoup(r.text, "html.parser")
-            # Placeholder selectors – replace with actual tags/ids/classes
-            eps_tag = soup.find(text=lambda t: 'EPS' in t)
-            pe_tag = soup.find(text=lambda t: 'P/E' in t)
-            bv_tag = soup.find(text=lambda t: 'Book Value' in t)
+            eps_tag = soup.find(string=lambda t: t and 'EPS' in t)
+            pe_tag = soup.find(string=lambda t: t and 'P/E' in t)
+            bv_tag = soup.find(string=lambda t: t and 'Book Value' in t)
             if eps_tag:
                 fundamentals['eps'] = float(eps_tag.split()[-1])
             if pe_tag:
@@ -647,7 +647,10 @@ class AgentLoop:
         prompt = f"""
 You are a Quant AI for NEPSE. Target: next‑day % return.
 Provide hyperparameters for XGB and LightGBM and propose ONE sandboxed feature.
-Only use columns present in the data. Return JSON:
+Only use columns present in the data: {list(combined_df.columns)}.
+CRITICAL: The sandbox uses `numexpr`. You MUST NOT use Pandas methods like `.shift()`, `.rolling()`, or `df['col']` syntax. 
+You MUST write mathematical expressions using column names directly. Example: `(Close - Open) / Open` or `np.log(Volume + 1)`.
+Return JSON exactly like this:
 {{"xgboost":{{...}}, "lightgbm":{{...}}, "new_features":{{"MyFeat":"formula"}}}}
 """
         reply = AgentLoop.ask_llm(prompt).replace("```json", "").replace("```", "").strip()
