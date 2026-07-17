@@ -2,38 +2,7 @@ import os
 import sys
 import json
 
-# Safe import for Streamlit
-try:
-    import streamlit as st
-except ImportError:
-    class _StreamlitStub:
-        def __init__(self):
-            pass
-        @staticmethod
-        def title(*args, **kwargs):
-            pass
-        @staticmethod
-        def text_input(*args, **kwargs):
-            return ''
-        @staticmethod
-        def button(*args, **kwargs):
-            return False
-        @staticmethod
-        def write(*args, **kwargs):
-            pass
-        @staticmethod
-        def markdown(*args, **kwargs):
-            pass
-        @staticmethod
-        def empty():
-            return _StreamlitStub()
-        @staticmethod
-        def session_state(*args, **kwargs):
-            return {}
-        @staticmethod
-        def progress(*args, **kwargs):
-            pass
-    st = _StreamlitStub()
+import streamlit as st
 
 # Placeholder function to query Qwen model (replace with real API)
 def ask_qwen(question: str) -> str:
