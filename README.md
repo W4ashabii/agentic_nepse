@@ -13,6 +13,18 @@ A production-ready, closed-loop agentic AI system for predicting NEPSE (Nepal St
 - **Nepal Trading Calendar:** Intelligently schedules background tasks and trading logic by respecting Nepal's local trading schedule (closed on Fridays, Saturdays, and public holidays) using `holidays.Nepal()`.
 - **Headless & UI:** Features a Streamlit interactive dashboard and a headless mode designed for automated execution via GitHub Actions.
 
+## Interactive Tools
+
+### Qwen Terminal Chat
+Interactive terminal-style chat with access to live stock CSV data. Just ask about any NEPSE stock (e.g., "How will BANDIPUR stock do?") and get answers based on actual data:
+```bash
+streamlit run terminal_chat.py
+```
+- Loads real-time CSV data from `data/{symbol}.csv`
+- Provides stock info: close, high, low, volume, 5-day return
+- Uses the same LLM backend as the main agent
+- Supports multiple symbols in one question
+
 ## Requirements
 
 - Python 3.10+
@@ -50,7 +62,7 @@ Click **Run Full Upgrade Loop** in the sidebar to start the training iterations.
 *New:* The promotion logic now incorporates a **GT‑Score ≥ 0.85** threshold (factoring in Win Rate, Edge, and Profit Factor) to guarantee that only strictly robust models are promoted to production.
 
 ### 2. Qwen Knowledge‑Base Terminal
-Interact with the Qwen model via a customized terminal‑style Streamlit UI featuring a distinct blue tech-aesthetic:
+Interact with the Qwen model via a customized terminal‑style Streamlit UI featuring a distinct blue tech-aesthetic. Now with live CSV data access:
 ```bash
 streamlit run terminal_chat.py
 ```
@@ -100,6 +112,12 @@ Since standard GitHub runners have limited resources, you can configure GitHub R
 - `LLM_API_KEY`: Your provider API Key
 - `LLM_BASE_URL`: Base URL (e.g. `https://openrouter.ai/api/v1/chat/completions`)
 - `LLM_MODEL`: Model ID (e.g. `qwen/qwen-2.5-7b-instruct`)
+
+## Recent Updates
+
+- **Infinity/Overflow Handling:** Added robust data cleaning to replace infinity values and clip extreme values before scaling to prevent sklearn validation errors
+- **Terminal Chat Enhancement:** Now loads and analyzes real CSV data from `data/{symbol}.csv` for accurate stock predictions
+- **Feature Generation Improvements:** Added idempotent `log` function replacement to prevent `np.np.log` errors
 
 ## Limitations & Risks
 
