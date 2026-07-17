@@ -135,4 +135,3 @@ if st.button("Send") and question.strip():
       <div class=\"apc-call-body\">{answer}</div>
     </div>
     """, unsafe_allow_html=True)
-"
