@@ -170,7 +170,8 @@ class DataLayer:
 
     @staticmethod
     def update_live_data():
-        """Fetch today’s price via nepse-scraper if available.
+        """Fetch today's price via nepse-scraper if available.
+        Normalizes NEPSE API response keys to our standard schema.
         """
         try:
             from nepse_scraper import NepseScraper
@@ -180,25 +181,42 @@ class DataLayer:
                 return
             today_date = datetime.now().strftime("%Y-%m-%d")
             for row in today:
-                sym = row.get('Symbol')
+                # NEPSE API uses various key names; normalize them
+                sym = (row.get('symbol') or row.get('Symbol') or
+                       row.get('securityName') or row.get('ticker') or '')
                 if not sym:
                     continue
+                sym = sym.strip().upper()
+                close_price = (row.get('closePrice') or row.get('close') or
+                               row.get('Close') or row.get('lastTradedPrice') or 0)
+                open_price = (row.get('openPrice') or row.get('open') or
+                              row.get('Open') or close_price)
+                high_price = (row.get('highPrice') or row.get('high') or
+                              row.get('High') or close_price)
+                low_price = (row.get('lowPrice') or row.get('low') or
+                             row.get('Low') or close_price)
+                volume = (row.get('totalTradedQuantity') or row.get('totalTradeQuantity') or
+                          row.get('traded_quantity') or row.get('Volume') or
+                          row.get('volume') or 0)
                 file_path = os.path.join(DATA_DIR, f"{sym}.csv")
                 new_row = {
                     'Date': today_date,
-                    'Open': row.get('Open', row.get('Close')),
-                    'High': row.get('High', row.get('Close')),
-                    'Low': row.get('Low', row.get('Close')),
-                    'Close': row.get('Close'),
-                    'Volume': row.get('Volume', 0)
+                    'Open': open_price,
+                    'High': high_price,
+                    'Low': low_price,
+                    'Close': close_price,
+                    'Volume': volume
                 }
                 if os.path.exists(file_path):
                     df = pd.read_csv(file_path)
-                    if today_date not in df['Date'].values:
+                    # Normalize date column for comparison
+                    date_col = next((c for c in df.columns if c.lower().replace('_','') in ('date','publisheddate')), None)
+                    if date_col and today_date not in df[date_col].astype(str).values:
                         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
                         df.to_csv(file_path, index=False)
                 else:
                     pd.DataFrame([new_row]).to_csv(file_path, index=False)
+                    logging.info(f"Created new data file for {sym}")
         except Exception as e:
             logging.error(f"Live data update faults: {e}")
 
@@ -271,6 +289,10 @@ class DataLayer:
                 if 'Date' not in df.columns or 'Close' not in df.columns:
                     logging.warning(f"Skipping {f} due to missing Date or Close columns.")
                     continue
+                
+                # Deduplicate rows on the same date (keep last entry)
+                df['Date'] = df['Date'].astype(str)
+                df = df.drop_duplicates(subset=['Date'], keep='last')
                     
                 df['Symbol'] = sym
                 for k, v in macro.items():
@@ -757,7 +779,9 @@ def main_predict():
     dfs = []
     price_pivot = {}
     for sym, grp in df.groupby('Symbol'):
-        price_pivot[sym] = grp.set_index('Date')['Close']
+        # Deduplicate dates to prevent reindex crash
+        grp_deduped = grp.drop_duplicates(subset=['Date'], keep='last')
+        price_pivot[sym] = grp_deduped.set_index('Date')['Close']
         feat_df = FeatureEngineer.generate_base_features(grp)
         feat_df = FeatureEngineer.apply_sandboxed_features(feat_df, custom_feats)
         feat_df = FeatureEngineer.detect_anomaly(feat_df)
