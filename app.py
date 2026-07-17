@@ -736,5 +736,12 @@ def run_ui():
         st.dataframe(preds.style.background_gradient(subset=['Predicted Change %','Allocation %'], cmap='RdYlGn'))
 
 if __name__ == "__main__":
-    # Entry point placeholder
-    pass
+    if os.environ.get("HEADLESS_MODE") == "1":
+        print("Running in HEADLESS MODE...")
+        DataLayer.update_live_data()
+        df, _ = DataLayer.load_cross_sectional_data()
+        AgentLoop.run_iteration(df)
+        main_predict()
+        print("Headless run complete.")
+    else:
+        run_ui()
