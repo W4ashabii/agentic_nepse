@@ -292,5 +292,143 @@
     "gt_score": 0.5167115298340063,
     "timestamp": "2026-07-18T02:33:32.068049",
     "promoted": false
+  },
+  {
+    "attempt_number": 11,
+    "hyperparams": {},
+    "resulting_mae": 0.01477678020455417,
+    "sharpe": 0.562563836650842,
+    "calmar": 1.6679227773368936e-05,
+    "profit": 6.121549274204162,
+    "gt_score": 0.5214502018842531,
+    "regime": "bull",
+    "timestamp": "2026-07-18T03:32:30.951757",
+    "promoted": false
+  },
+  {
+    "attempt_number": 12,
+    "hyperparams": {
+      "xgboost": {
+        "colsample_bytree": 0.8,
+        "learning_rate": 0.1,
+        "max_depth": 6,
+        "n_estimators": 500,
+        "subsample": 0.7
+      },
+      "lightgbm": {
+        "colsample_bylevel": 0.9,
+        "learning_rate": 0.1,
+        "max_depth": 6,
+        "num_leaves": 32,
+        "reg_alpha": 0.5
+      },
+      "new_features": {
+        "MyFeat": "(Close - Open) / np.log(InterbankRate + 1)"
+      }
+    },
+    "resulting_mae": 0.015418703910787422,
+    "sharpe": 0.6651802590239416,
+    "calmar": 6.7564768319794944e-06,
+    "profit": 6.600113841684835,
+    "gt_score": 0.5241980708838044,
+    "regime": "bull",
+    "timestamp": "2026-07-18T03:32:56.814711",
+    "promoted": false
+  },
+  {
+    "attempt_number": 13,
+    "hyperparams": {
+      "xgboost": {
+        "objective": "reg:squarederror",
+        "eval_metric": "mae",
+        "learning_rate": 0.1,
+        "n_estimators": 100,
+        "max_depth": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.9
+      },
+      "lightgbm": {
+        "objective": "regression",
+        "metric": "mae",
+        "learning_rate": 0.1,
+        "num_boost_round": 100,
+        "max_depth": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.9
+      },
+      "new_features": {
+        "MyFeat": "(Close - Open) / Open + per_change"
+      }
+    },
+    "resulting_mae": 0.014137147359234256,
+    "sharpe": 0.5093907942375903,
+    "calmar": 9.471433757496102e-06,
+    "profit": 5.630797187373574,
+    "gt_score": 0.5169078061911171,
+    "regime": "bull",
+    "timestamp": "2026-07-18T03:33:07.214262",
+    "promoted": false
+  },
+  {
+    "attempt_number": 14,
+    "hyperparams": {
+      "xgboost": {
+        "colsample_bytree": 0.9,
+        "eta": 0.3,
+        "max_depth": 5,
+        "min_child_weight": 6,
+        "subsample": 0.8
+      },
+      "lightgbm": {
+        "colsample_bynode": 0.9,
+        "colsample_bytree": 0.9,
+        "gamma": 1,
+        "lambda_l2": 2,
+        "num_leaves": 31
+      },
+      "new_features": {
+        "MyFeat": "(eps + per_change) * np.log(traded_amount)"
+      }
+    },
+    "resulting_mae": 0.014653496652434114,
+    "sharpe": 0.5477475335174323,
+    "calmar": 3.974882074002572e-05,
+    "profit": 5.765472692883319,
+    "gt_score": 0.5188144908030506,
+    "regime": "bull",
+    "timestamp": "2026-07-18T03:33:19.804430",
+    "promoted": false
+  },
+  {
+    "attempt_number": 15,
+    "hyperparams": {
+      "xgboost": {
+        "col_sample_by_tree": 0.5,
+        "subsample": 0.8,
+        "eta": 0.3,
+        "max_depth": 6,
+        "objective": "reg:linear",
+        "eval_metric": "rmse"
+      },
+      "lightgbm": {
+        "num_leaves": 20,
+        "learning_rate": 0.1,
+        "feature_fraction": 0.9,
+        "bagging_fraction": 0.8,
+        "objective": "regression",
+        "metric": "rmse"
+      },
+      "new_features": {
+        "MyFeat": "(Close - (Open + High + Low) / 3) * interest_rate"
+      }
+    },
+    "resulting_mae": 0.016248214977343,
+    "sharpe": 0.4627614392835148,
+    "calmar": -3.066456392789398e-05,
+    "profit": 4.713443729957717,
+    "gt_score": 0.5176368326603858,
+    "regime": "bull",
+    "timestamp": "2026-07-18T03:33:35.933442",
+    "promoted": false
   }
 ]

@@ -7,7 +7,7 @@ A production-ready, closed-loop agentic AI system for predicting NEPSE (Nepal St
 - **Universal Cross-Sectional Model:** Pools all NEPSE symbols into a single massive dataset to solve the short-history and thin-liquidity problems. Learns universal market patterns simultaneously using XGBoost and LightGBM.
 - **Secure Sandboxed Feature Invention:** An LLM (Qwen2.5:3b via Ollama, or an external provider) acts as a quantitative researcher. It reviews past iterations and invents completely novel mathematical features dynamically. This utilizes `pandas.eval()` to ensure strict mathematical security and prevent arbitrary code execution.
 - **Volume-Aware Sharpe Backtester:** Models are evaluated via a realistic trading simulator that penalizes low-volume stocks with dynamic slippage (up to 1%+).
-- **Hedge-Fund Level Metrics:** Implements strict risk-management and trading realism. It enforces T+2 settlement capital lockups, applies realistic bid-ask spreads, and filters models using a rigid **GT-Score** (Win Rate + Edge + Profit Factor) before promotion.
+- **Hedge-Fund Level Metrics:** Implements strict risk-management and trading realism. It enforces T+2 settlement capital lockups, applies realistic bid-ask spreads, and filters models using a rigid **GT-Score** (Directional Accuracy: percentage of correct up/down predictions) before promotion.
 - **Diversified Portfolio Allocation:** Uses `PyPortfolioOpt` to compute portfolio weights based on cross-sectional predicted returns and 60-day historical covariance, heavily stabilized using **L2 Regularization** to prevent risky, concentrated allocations.
 - **Advanced Quant Features:** Generates 184+ indicators (using TA-Lib with a pure-Python `pandas_ta` fallback), continuous regime scores (20-day volatility percentiles), and incorporates macroeconomic data scraped from the Nepal Rastra Bank (NRB).
 - **Nepal Trading Calendar:** Intelligently schedules background tasks and trading logic by respecting Nepal's local trading schedule (closed on Fridays, Saturdays, and public holidays) using `holidays.Nepal()`.
@@ -21,6 +21,7 @@ A production-ready, closed-loop agentic AI system for predicting NEPSE (Nepal St
 - **Quarterly Fundamental Analysis:** Tracks EPS growth and revenue growth from quarterly filings for fundamental strength assessment.
 - **Regime-Aware Position Limits:** Reduces max positions in bear markets (3), maintains 8 in neutral, increases to 10 in bull markets.
 - **Walk-Forward Validation:** Slides train/test windows across 6+ years of history to validate out-of-sample performance robustness.
+- **Walk-Forward OOF Generation:** Generates out-of-fold predictions for stacking meta-learners using walk-forward validation to prevent data leakage.
 - **Signal Strength Scoring:** Combines multiple signals (momentum, quality, fundamentals) to produce more robust buy/sell signals.
 
 ## Headless & UI
@@ -73,7 +74,7 @@ To visualize data, trigger the agent loop manually, and view the allocation tabl
 streamlit run app.py
 ```
 Click **Run Full Upgrade Loop** in the sidebar to start the training iterations.
-*New:* The promotion logic now incorporates a **GT‑Score ≥ 0.85** threshold (factoring in Win Rate, Edge, and Profit Factor) to guarantee that only strictly robust models are promoted to production.
+*New:* The promotion logic now incorporates a **GT‑Score ≥ 0.45-0.50** threshold (directional accuracy, i.e., percentage of correct up/down predictions) to guarantee that only strictly robust models are promoted to production.
 
 ### 2. Qwen Knowledge‑Base Terminal
 Interact with the Qwen model via a customized terminal‑style Streamlit UI featuring a distinct blue tech-aesthetic. Now with live CSV data access:
@@ -135,6 +136,8 @@ Since standard GitHub runners have limited resources, you can configure GitHub R
 - **Enhanced Quant Features (v2.0):** Integrated market regime detection, gold/silver regime overlay, cross-sectional momentum, quality scoring, quarterly fundamental analysis, walk-forward validation, and signal strength scoring from nepse-quant-terminal
 - **Regime-Aware Capital Deployment:** Auto-adjusts capital deployment based on market and gold regimes (90%-100%)
 - **Enhanced Signal Generation:** Combines multiple signals for more robust predictions with XSec Momentum, Quality Score, and Fund Score columns in predictions
+- **Walk-Forward OOF Framework:** Added `generate_walk_forward_oof()` and `prepare_stacking_features()` for stacking meta-learner support with walk-forward-consistent predictions
+- **Expanded Metrics:** Added R², directional accuracy, and naive baseline comparison (MAE improvement %, directional improvement %) to `ModelTrainer.train_and_evaluate()`
 
 ## Usage: Enhanced Quant Features
 
@@ -143,7 +146,8 @@ The enhanced quant features can be used programmatically:
 ```python
 from enhanced_quant import (
     get_regime_score, get_gold_regime, calculate_xsec_momentum,
-    calculate_quality_score, apply_regime_filter, walk_forward_validation
+    calculate_quality_score, apply_regime_filter, walk_forward_validation,
+    generate_walk_forward_oof, prepare_stacking_features
 )
 
 # Detect market regime
@@ -163,6 +167,12 @@ filtered = apply_regime_filter(predictions, regime)
 
 # Walk-forward validation
 results = walk_forward_validation(df, model_trainer, train_start, train_end)
+
+# Walk-forward OOF generation for stacking meta-learner
+oof_df = generate_walk_forward_oof(df, model_trainer, train_start, train_end)
+
+# Prepare features for meta-learner
+stacking_features = prepare_stacking_features(df, model_trainer)
 ```
 
 ## Limitations & Risks

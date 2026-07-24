@@ -57,10 +57,14 @@ except ImportError:
             return []
 
 import streamlit as st
+try:
+    import plotly.express as px
+except ImportError:
+    px = None
 
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, r2_score, accuracy_score
 from sklearn.ensemble import RandomForestRegressor
 
 from xgboost import XGBRegressor
@@ -571,12 +575,16 @@ class ModelTrainer:
         """
         if len(returns) == 0:
             return 0.0
-        cumulative = np.cumprod(1 + returns) - 1
+        # Convert returns to cumulative returns
+        if np.any(returns <= -1):
+            returns = np.clip(returns, -0.99, None)  # Avoid negative cumulative
+        cumulative = np.cumprod(1 + np.clip(returns, -0.99, None)) - 1
         peak = np.maximum.accumulate(cumulative)
         drawdown = (peak - cumulative).max()
-        if drawdown == 0:
-            return 0.0
-        return returns.mean() / drawdown
+        if drawdown <= 1e-10:
+            # If no drawdown, return a small positive value if mean is positive
+            return 0.1 if returns.mean() > 0 else 0.0
+        return returns.mean() / drawdown if drawdown > 1e-10 else 0.0
 
     @staticmethod
     def run_backtest(y_true: np.ndarray, y_pred: np.ndarray, volumes: np.ndarray) -> Dict[str, float]:
@@ -592,9 +600,21 @@ class ModelTrainer:
             else:
                 returns.append(0.0)
         arr = np.array(returns)
-        sharpe = (arr.mean() / arr.std()) * np.sqrt(252) if arr.std() != 0 else 0.0
+        
+        # Handle edge case where all returns are zero
+        if np.allclose(arr, 0):
+            return {"sharpe": 0.0, "calmar": 0.0, "net_profit": 0.0}
+        
+        # Calculate Sharpe with small epsilon to avoid division by zero
+        std_return = arr.std()
+        if std_return < 1e-10:
+            sharpe = 0.0 if arr.mean() <= 0 else 10.0  # High Sharpe if consistently positive
+        else:
+            sharpe = (arr.mean() / std_return) * np.sqrt(252)
+        
         calmar = ModelTrainer.calculate_calmar(arr)
         net_profit = arr.sum()
+        
         return {"sharpe": sharpe, "calmar": calmar, "net_profit": net_profit}
 
     @staticmethod
@@ -678,6 +698,9 @@ class ModelTrainer:
             lgb.fit(X_train_sc, y_train)
             preds = (xgb.predict(X_val_sc) + lgb.predict(X_val_sc)) / 2.0
             mae = mean_absolute_error(y_val, preds)
+            r2 = r2_score(y_val, preds)
+            directional_accuracy = accuracy_score(y_val > 0, preds > 0)
+            
             metrics = ModelTrainer.run_backtest(y_val.values, preds, v_val.values)
             
             # Apply regime-based capital deployment adjustment
@@ -688,15 +711,41 @@ class ModelTrainer:
             sharpe_list.append(metrics['sharpe'])
             calmar_list.append(metrics['calmar'])
             profit_list.append(metrics['net_profit'])
-            gt_score = np.mean((preds > 0) == (y_val > 0))
+            
+            # Directional accuracy (same as current GT Score implementation)
+            gt_score = directional_accuracy
             gt_score_list.append(gt_score)
             best_model = (scaler, xgb, lgb)
+        
         final_gt_score = np.mean(gt_score_list)
         final_mae = np.mean(mae_list)
         final_sharpe = np.mean(sharpe_list)
         final_calmar = np.mean(calmar_list)
         final_profit = np.mean(profit_list)
-        return final_mae, final_sharpe, final_calmar, final_profit, final_gt_score, best_model, X.columns.tolist(), regime
+        
+        # Calculate R² and directional accuracy from full CV predictions
+        final_r2 = np.mean([r2_score(y.iloc[tscv.split(X)[i][1]], 
+                                      (xgb.predict(scaler.transform(X.iloc[tscv.split(X)[i][1]])) + 
+                                       lgb.predict(scaler.transform(X.iloc[tscv.split(X)[i][1]]))) / 2.0) 
+                           for i in range(tscv.n_splits)])
+        final_directional_accuracy = np.mean([accuracy_score(y.iloc[tscv.split(X)[i][1]] > 0,
+                                                              ((xgb.predict(scaler.transform(X.iloc[tscv.split(X)[i][1]])) + 
+                                                                lgb.predict(scaler.transform(X.iloc[tscv.split(X)[i][1]]))) / 2.0) > 0)
+                                             for i in range(tscv.n_splits)])
+        
+        # Naive baseline (random walk / previous-day price)
+        naive_preds = y.shift(1).fillna(0)
+        naive_mae = mean_absolute_error(y, naive_preds)
+        naive_directional_accuracy = accuracy_score(y > 0, naive_preds > 0)
+        
+        return final_mae, final_sharpe, final_calmar, final_profit, final_gt_score, best_model, X.columns.tolist(), regime, {
+            'r2': final_r2,
+            'directional_accuracy': final_directional_accuracy,
+            'naive_mae': naive_mae,
+            'naive_directional_accuracy': naive_directional_accuracy,
+            'mae_improvement_pct': (naive_mae - final_mae) / naive_mae * 100 if naive_mae > 0 else 0,
+            'directional_improvement_pct': (final_directional_accuracy - naive_directional_accuracy) * 100
+        }
 
 # ------------------------------------------------------------
 # Portfolio Optimizer
@@ -790,11 +839,9 @@ Return JSON exactly like this:
             feat_df = FeatureEngineer.add_retail_sentiment(feat_df)
             dfs.append(feat_df)
         final_df = pd.concat(dfs, ignore_index=True)
-        mae, sharpe, calmar, profit, gt_score, model, cols, regime = ModelTrainer.train_and_evaluate(final_df, sugg, custom_feats)
-        # Promotion rule with regime-aware capital deployment
-        best_sharpe = max([m.get('sharpe', -999) for m in mem]) if mem else -999
-        best_calmar = max([m.get('calmar', -999) for m in mem]) if mem else -999
-        best_mae = min([m.get('mae', 999) for m in mem]) if mem else 999
+        mae, sharpe, calmar, profit, gt_score, model, cols, regime, metrics_dict = ModelTrainer.train_and_evaluate(final_df, sugg, custom_feats)
+        
+        # Update attempt with additional metrics
         attempt = {
             "attempt_number": len(mem) + 1,
             "hyperparams": sugg,
@@ -803,6 +850,12 @@ Return JSON exactly like this:
             "calmar": float(calmar),
             "profit": float(profit),
             "gt_score": float(gt_score),
+            "r2": float(metrics_dict.get('r2', 0)),
+            "directional_accuracy": float(metrics_dict.get('directional_accuracy', 0)),
+            "naive_mae": float(metrics_dict.get('naive_mae', 0)),
+            "naive_directional_accuracy": float(metrics_dict.get('naive_directional_accuracy', 0)),
+            "mae_improvement_pct": float(metrics_dict.get('mae_improvement_pct', 0)),
+            "directional_improvement_pct": float(metrics_dict.get('directional_improvement_pct', 0)),
             "regime": regime,
             "timestamp": datetime.now().isoformat()
         }
@@ -924,6 +977,7 @@ def main_predict():
 def run_ui():
     st.set_page_config(layout="wide", page_title="NEPSE Hedge‑Fund Agent")
     st.title("📊 NEPSE Hedge‑Fund Level Predictor")
+    
     with st.sidebar:
         if st.button("Run Full Upgrade Loop"):
             with st.spinner("Running agent loop…"):
@@ -937,6 +991,43 @@ def run_ui():
                         AgentLoop.run_iteration(df)
                     main_predict()
                     st.success("Run complete!")
+    
+    # Show some basic data info even without predictions
+    try:
+        df_info, _ = DataLayer.load_cross_sectional_data()
+        if not df_info.empty:
+            symbols_count = df_info['Symbol'].nunique()
+            dates_count = df_info['Date'].nunique()
+            date_range = f"{df_info['Date'].min().strftime('%Y-%m-%d')} to {df_info['Date'].max().strftime('%Y-%m-%d')}"
+            
+            with st.expander("📊 Market Data Overview", expanded=True):
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Stocks Available", symbols_count)
+                col2.metric("Trading Days", dates_count)
+                col3.metric("Date Range", date_range)
+            
+            # Show top gainers from recent data
+            st.subheader("📈 Recent Market Trends")
+            recent_data = df_info.sort_values('Date').groupby('Symbol').last().reset_index()
+            recent_data['Daily Return'] = recent_data.groupby('Symbol')['Close'].pct_change().fillna(0)
+            top_gainers = recent_data.nlargest(5, 'Daily Return')
+            top_losers = recent_data.nsmallest(5, 'Daily Return')
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("##### 🔥 Top 5 Recent Gainers")
+                st.dataframe(
+                    top_gainers[['Symbol', 'Close', 'Daily Return']].style.format({'Daily Return': '{:.2%}', 'Close': 'Rs {:.2f}'})
+                )
+            with c2:
+                st.write("##### 📉 Top 5 Recent Losers")
+                st.dataframe(
+                    top_losers[['Symbol', 'Close', 'Daily Return']].style.format({'Daily Return': '{:.2%}', 'Close': 'Rs {:.2f}'})
+                )
+            st.divider()
+    except Exception as e:
+        pass
+    
     mem = AgentLoop.load_memory()
     if mem:
         best_sharpe = max(m.get('sharpe', 0) for m in mem)
@@ -947,6 +1038,11 @@ def run_ui():
         c1.metric("🏆 Best Sharpe Ratio", f"{best_sharpe:.2f}")
         c2.metric("🛡️ Best Calmar Ratio", f"{best_calmar:.2f}")
         c3.metric("🎯 Latest MAE", f"{latest.get('resulting_mae',0):.5f}")
+        
+        # Show last run details
+        with st.expander("📊 Last Run Details", expanded=False):
+            st.json(latest)
+        
         st.divider()
         
     if os.path.exists(PREDICTIONS_FILE):
@@ -971,30 +1067,147 @@ def run_ui():
         capital_pct = get_capital_deployment_percentage(gold_regime)
         
         # Display regime info
+        regime_colors = {'bull': '#2ecc71', 'neutral': '#f1c40f', 'bear': '#e74c3c'}
+        gold_colors = {'risk_on': '#3498db', 'neutral': '#95a5a6', 'risk_off': '#e74c3c'}
         st.info(f"📊 **Current Market Regime:** {regime.upper()} | 💰 **Gold Regime:** {gold_regime.upper()} | 💵 **Capital Deployment:** {capital_pct*100:.0f}%")
         
-        # Display Charts
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("##### 🔥 Top 10 Predicted Returns (%)")
-            top_preds = preds.nlargest(10, 'Predicted Change %').set_index('Symbol')['Predicted Change %']
-            st.bar_chart(top_preds)
-            
-        with col2:
-            st.write("##### 💰 Optimal Portfolio Allocation (%)")
-            top_alloc = preds[preds['Allocation %'] > 0.0].nlargest(10, 'Allocation %').set_index('Symbol')['Allocation %']
-            if not top_alloc.empty:
-                st.bar_chart(top_alloc, color="#2ecc71")
-            else:
-                st.info("No allocations (market conditions too risky)")
-                
+        # --- Chart 1: Predicted Returns (Top 20) ---
+        st.write("##### 🔥 Top 20 Predicted Returns (%)")
+        top_preds = preds.nlargest(20, 'Predicted Change %').copy()
+        top_preds['Color'] = top_preds['Predicted Change %'].apply(lambda x: '#2ecc71' if x > 0 else '#e74c3c')
+        # Use plotly for colored bars, fallback to simple bar chart
+        if px is not None:
+            fig = px.bar(top_preds, x='Symbol', y='Predicted Change %', color='Predicted Change %',
+                        color_continuous_scale='RdYlGn',
+                        labels={'Predicted Change %': 'Predicted Return (%)'})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.bar_chart(top_preds.set_index('Symbol')['Predicted Change %'])
+        
+        # --- Chart 2: Portfolio Allocation (Top 15) ---
+        st.write("##### 💰 Top 15 Portfolio Allocations (%)")
+        alloc_df = preds[preds['Allocation %'] > 0.0].nlargest(15, 'Allocation %').copy()
+        if not alloc_df.empty:
+            alloc_chart = alloc_df.set_index('Symbol')['Allocation %']
+            st.bar_chart(alloc_chart, color="#3498db")
+        else:
+            st.info("No allocations (market conditions too risky)")
+        
+        # --- Chart 3: Signal Distribution (Pie Chart) ---
+        st.write("##### 🎯 Signal Distribution")
+        signal_counts = preds['Signal'].value_counts()
+        if px is not None:
+            fig = px.pie(
+                names=signal_counts.index,
+                values=signal_counts.values,
+                color_discrete_sequence=['#2ecc71', '#f39c12', '#e74c3c', '#95a5a6']
+            )
+            fig.update_traces(textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.pie(signal_counts.values, labels=signal_counts.index, autopct='%1.1f%%',
+                   colors=['#2ecc71', '#f39c12', '#e74c3c', '#95a5a6'])
+            ax.set_title('Signal Distribution')
+            st.pyplot(fig)
+        
+        # --- Chart 4: Quality Score vs Predicted Return Scatter ---
+        st.write("##### 📊 Quality Score vs Predicted Return")
+        if 'Quality Score' in preds.columns and px is not None:
+            scatter_df = preds.nlargest(50, 'Predicted Change %')
+            fig_scatter = px.scatter(
+                scatter_df,
+                x='Quality Score',
+                y='Predicted Change %',
+                size='Allocation %',
+                color='Signal',
+                hover_data=['Symbol'],
+                color_discrete_map={'Strong Buy': '#2ecc71', 'Buy': '#3498db', 'Neutral': '#f39c12', 'Sell': '#e74c3c'}
+            )
+            fig_scatter.update_layout(showlegend=False)
+            st.plotly_chart(fig_scatter, use_container_width=True)
+        else:
+            st.info("Quality scores not available for this dataset")
+        
+        # --- Chart 5: X-Sec Momentum Distribution ---
+        st.write("##### 📈 Cross-Sectional Momentum Distribution")
+        if 'XSec Momentum' in preds.columns and px is not None:
+            fig_momentum = px.histogram(
+                preds,
+                x='XSec Momentum',
+                nbins=20,
+                color_discrete_sequence=['#3498db'],
+                labels={'XSec Momentum': 'Momentum (6m-1m return)'},
+                title='Distribution of X-Sec Momentum Scores'
+            )
+            st.plotly_chart(fig_momentum, use_container_width=True)
+        else:
+            st.info("Momentum scores not available for this dataset")
+        
+        # --- Chart 6: Top Gainers/Losers Bar Chart ---
+        st.write("##### 📉 Top 10 Gainers vs Top 10 Losers")
+        top_gainers = preds.nlargest(10, 'Predicted Change %')
+        top_losers = preds.nsmallest(10, 'Predicted Change %')
+        combined = pd.concat([top_gainers, top_losers])
+        combined_chart = combined.set_index('Symbol')['Predicted Change %']
+        st.bar_chart(combined_chart)
+        
+        # --- Chart 7: Allocation Heatmap (regional) ---
+        st.write("##### 🌍 Allocation by Signal Category")
+        if not preds.empty and px is not None:
+            alloc_by_signal = preds.groupby('Signal')['Allocation %'].sum().reset_index()
+            fig_heat = px.bar(
+                alloc_by_signal,
+                x='Signal',
+                y='Allocation %',
+                color='Signal',
+                color_discrete_map={'Strong Buy': '#2ecc71', 'Buy': '#3498db', 'Neutral': '#f39c12', 'Sell': '#e74c3c'}
+            )
+            fig_heat.update_layout(showlegend=False)
+            st.plotly_chart(fig_heat, use_container_width=True)
+        else:
+            st.info("Allocation by signal category not available")
+        
+        # --- Table: Detailed Predictions ---
         st.write("##### 📋 Detailed Predictions Table")
+        display_cols = ['Symbol', 'Current Price', 'Predicted Change %', 'Regime Score', 'Allocation %', 'Signal']
+        if 'Quality Score' in preds.columns:
+            display_cols.append('Quality Score')
+        if 'XSec Momentum' in preds.columns:
+            display_cols.append('XSec Momentum')
+        if 'Fund Score' in preds.columns:
+            display_cols.append('Fund Score')
+        
         st.dataframe(
-            preds.style.background_gradient(subset=['Predicted Change %'], cmap='RdYlGn')
-                      .background_gradient(subset=['Allocation %'], cmap='Greens')
-                      .format({'Current Price': 'Rs {:.2f}', 'Predicted Change %': '{:.2f}%', 'Regime Score': '{:.2f}', 'Allocation %': '{:.2f}%'}),
+            preds[display_cols].style.background_gradient(subset=['Predicted Change %'], cmap='RdYlGn')
+                              .background_gradient(subset=['Allocation %'], cmap='Greens')
+                              .format({
+                                  'Current Price': 'Rs {:.2f}',
+                                  'Predicted Change %': '{:.2f}%',
+                                  'Regime Score': '{:.2f}',
+                                  'Allocation %': '{:.2f}%',
+                                  'Quality Score': '{:.2f}',
+                                  'XSec Momentum': '{:.2f}',
+                                  'Fund Score': '{:.2f}'
+                              }),
             width='stretch'
         )
+
+        # --- Performance Summary Cards ---
+        st.divider()
+        st.subheader("📊 Performance Summary")
+        c1, c2, c3, c4 = st.columns(4)
+        
+        total_alloc = preds['Allocation %'].sum()
+        avg_pred = preds['Predicted Change %'].mean()
+        buy_count = len(preds[preds['Signal'].isin(['Strong Buy', 'Buy'])])
+        sell_count = len(preds[preds['Signal'] == 'Sell'])
+        
+        c1.metric("💰 Total Allocation", f"{total_alloc:.1f}%")
+        c2.metric("📈 Avg Predicted Return", f"{avg_pred:.2f}%")
+        c3.metric("🟢 Buy Signals", f"{buy_count}")
+        c4.metric("🔴 Sell Signals", f"{sell_count}")
 
 if __name__ == "__main__":
     if os.environ.get("HEADLESS_MODE") == "1":

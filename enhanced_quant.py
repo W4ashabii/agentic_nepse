@@ -8,7 +8,7 @@ Enhanced Quant Features from nepse-quant-terminal
 import numpy as np
 import pandas as pd
 from datetime import date
-from typing import Tuple, Optional, Dict
+from typing import Tuple, Optional, Dict, List
 
 # NEPSE Calendar constants
 TRADING_WEEK_MODE = "mon_fri"  # Default: Monday-Friday
@@ -310,3 +310,150 @@ def walk_forward_validation(df: pd.DataFrame, model_trainer,
         results['success_rate'] = 0
     
     return results
+
+
+def generate_walk_forward_oof(df: pd.DataFrame, model_trainer, 
+                             train_start: str, train_end: str,
+                             test_period: int = 30, step: int = 30) -> pd.DataFrame:
+    """
+    Generate walk-forward out-of-fold predictions for stacking meta-learner.
+    
+    This function produces out-of-fold predictions that are guaranteed to be
+    walk-forward consistent (no look-ahead bias). Each prediction is made on
+    unseen data using only information available at that point in time.
+    
+    Args:
+        df: Combined dataset with features and Target column
+        model_trainer: ModelTrainer class with train_and_evaluate method
+        train_start: Start date for initial training window
+        train_end: End date for initial training window  
+        test_period: Number of days in each test period
+        step: Step size between windows
+    
+    Returns:
+        DataFrame with columns:
+        - Date: Date of prediction
+        - Symbol: Stock symbol
+        - oof_prediction: Out-of-fold prediction from ensemble
+        - fold: Fold number (for tracking)
+    """
+    results = []
+    fold = 0
+    
+    df = df.copy()
+    df['Date'] = pd.to_datetime(df['Date'])
+    df = df.sort_values('Date').reset_index(drop=True)
+    
+    # Get unique dates for walk-forward splitting
+    train_dates = df['Date'].unique()
+    train_idx_start = 0
+    
+    # Start with a minimum training period
+    min_train_size = 180  # 6 months minimum
+    train_idx_end = min_train_size
+    
+    while train_idx_end < len(train_dates):
+        # Define training window
+        train_start_date = train_dates[train_idx_start]
+        train_end_date = train_dates[train_idx_end]
+        
+        # Define test window (immediately after training)
+        test_start_idx = train_idx_end
+        test_end_idx = min(test_start_idx + test_period, len(train_dates))
+        
+        if test_end_idx <= test_start_idx:
+            break
+            
+        test_start_date = train_dates[test_start_idx]
+        test_end_date = train_dates[test_end_idx - 1]
+        
+        # Split data
+        train_df = df[(df['Date'] >= train_start_date) & (df['Date'] <= train_end_date)]
+        test_df = df[(df['Date'] > train_end_date) & (df['Date'] <= test_end_date)]
+        
+        if len(train_df) < 100 or len(test_df) < 10:
+            train_idx_end += step
+            continue
+        
+        try:
+            # Train model on training data only
+            params = {'xgboost': {'n_estimators': 50, 'random_state': 42},
+                     'lightgbm': {'n_estimators': 50, 'random_state': 42}}
+            
+            mae, sharpe, calmar, profit, gt_score, model, cols, regime, metrics = model_trainer(
+                train_df, params, {}
+            )
+            
+            if model is None:
+                train_idx_end += step
+                continue
+            
+            # Get OOF predictions for test period
+            scaler, xgb, lgb = model
+            
+            # Prepare test features
+            test_features = test_df.drop(columns=['Date', 'Target', 'Symbol'], errors='ignore')
+            test_features = test_features.clip(lower=-1e10, upper=1e10)
+            test_features_sc = scaler.transform(test_features)
+            
+            # Generate ensemble predictions
+            xgb_preds = xgb.predict(test_features_sc)
+            lgb_preds = lgb.predict(test_features_sc)
+            oof_preds = (xgb_preds + lgb_preds) / 2.0
+            
+            # Store results
+            for idx, row in test_df.iterrows():
+                results.append({
+                    'Date': row['Date'],
+                    'Symbol': row['Symbol'],
+                    'oof_prediction': oof_preds[test_df.index.get_loc(idx)],
+                    'actual': row['Target'],
+                    'fold': fold
+                })
+            
+            fold += 1
+            
+        except Exception as e:
+            pass
+        
+        # Move forward
+        train_idx_end += step
+    
+    return pd.DataFrame(results) if results else pd.DataFrame(columns=['Date', 'Symbol', 'oof_prediction', 'actual', 'fold'])
+
+
+def prepare_stacking_features(df: pd.DataFrame, model_trainer, 
+                             base_model_names: List[str] = None) -> pd.DataFrame:
+    """
+    Prepare features for stacking meta-learner using walk-forward OOF predictions.
+    
+    This generates the base model predictions that will be used as input features
+    for the meta-learner. Each base model's predictions are generated using
+    walk-forward validation to prevent data leakage.
+    
+    Args:
+        df: Combined dataset with features and Target column
+        model_trainer: ModelTrainer class with train_and_evaluate method
+        base_model_names: List of base model names (default: ['xgb', 'lgb'])
+    
+    Returns:
+        DataFrame with columns:
+        - Date, Symbol, actual
+        - oof_xgb: OOF predictions from XGBoost
+        - oof_lgb: OOF predictions from LightGBM
+        - oof_ensemble: Average of base models
+    """
+    if base_model_names is None:
+        base_model_names = ['xgb', 'lgb']
+    
+    # For now, use ensemble predictions as single feature
+    # In production, you'd train each base model separately and aggregate
+    oof_df = generate_walk_forward_oof(df, model_trainer, '', '', test_period=30, step=30)
+    
+    if oof_df.empty:
+        return oof_df
+    
+    # Add target for meta-learner training
+    oof_df['meta_target'] = oof_df['actual']
+    
+    return oof_df
